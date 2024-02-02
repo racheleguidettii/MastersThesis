@@ -547,7 +547,7 @@ def make_monopole_dipole_quadrupole(N,pix_size,beam_size_fwhp,bs):
 
 #################################################################################################################################################################################################################################################################################################################################################################################################################################
 
-def make_systematics_beams(N,pix_size,beam_size_fwhp,bs):
+def make_systematics_beams_original(N,pix_size,beam_size_fwhp,bs):
     # intitalize the beam to zero
     B_TT=B_QQ=B_UU=B_QT=B_UT=B_QU=B_UQ=0.
     
@@ -607,6 +607,66 @@ def make_systematics_beams(N,pix_size,beam_size_fwhp,bs):
     return(B_TT,B_QQ,B_UU,B_QT,B_UT,B_QU,B_UQ)
 
 
+
+# FROM THE FUNCTIONS make_little_buddies, make_ghosting_beam and make_cross_talk_beam_grid WE ADD SYSTEMATICS TO THE BEAM
+def make_systematics_beams(N,pix_size,beam_size_fwhp, beam,bs):
+    
+    # intitalize the beam to zero
+    B_TT=B_QQ=B_UU=B_QT=B_UT=B_QU=B_UQ=0.
+    
+    ## merge this into the beam
+    B_TT += beam
+    B_QQ += beam
+    B_UU += beam
+    
+    beam_peak = np.max(beam)
+    
+    # make the little buddies
+    Budy_TT,Budy_QT,Budy_UT = make_little_buddies(N,pix_size,beam_size_fwhp,bs,beam_peak)
+    ## merge this into the beam
+    B_TT += Budy_TT
+    B_QT += Budy_QT
+    B_UT += Budy_UT
+
+    # make the ghosting shelf
+    shelf = make_ghosting_beam(N,pix_size,beam_size_fwhp,bs,beam_peak)
+    ## merge this into the beam
+    B_TT += shelf
+    B_QQ += shelf
+    B_UU += shelf
+    
+    # make the cross talk beam
+    # make a hex grid centered on the beam
+    hex_grid = make_cross_talk_beam_grid(N,pix_size,beam_size_fwhp,bs)
+    #convolve the hex grid with the beam
+    cross_talk = convlolve(hex_grid,beam)
+    ## merge this into the beam
+    B_TT += cross_talk
+    B_QQ += cross_talk
+    B_UU += cross_talk
+    B_QT += cross_talk
+    B_UT += cross_talk
+    
+    
+    ## add the monopole + dipole + quadrupole T->P leakages
+    # make the beam modes
+    mono,dip_x,dip_y,quad_x,quad_45 = make_monopole_dipole_quadrupole(N,pix_size,beam_size_fwhp,bs)
+    TtoQ = bs["TtoQ"]["mono"] * mono
+    TtoQ += bs["TtoQ"]["dip_x"] * dip_x
+    TtoQ += bs["TtoQ"]["dip_y"] * dip_y
+    TtoQ += bs["TtoQ"]["quad_x"] * quad_x
+    TtoQ += bs["TtoQ"]["quad_45"] * quad_45
+    TtoU = bs["TtoU"]["mono"] * mono
+    TtoU += bs["TtoU"]["dip_x"] * dip_x
+    TtoU += bs["TtoU"]["dip_y"] * dip_y
+    TtoU += bs["TtoU"]["quad_x"] * quad_x
+    TtoU += bs["TtoU"]["quad_45"] * quad_45
+    ## add to the beams
+    B_QT += TtoQ
+    B_UT += TtoU
+    
+    
+    return(B_TT,B_QQ,B_UU,B_QT,B_UT,B_QU,B_UQ)  
 #################################################################################################################################################################################################################################################################################################################################################################################################################################
 def convolve_map_polarized_systmatic_beam(B_TT,B_QQ,B_UU,B_QT,B_UT,B_QU,B_UQ,QMap,UMap,TMap):
     "convolves a map with a gaussian beam pattern.  NOTE: pix_size and beam_size_fwhp need to be in the same units" 
@@ -619,6 +679,97 @@ def convolve_map_polarized_systmatic_beam(B_TT,B_QQ,B_UU,B_QT,B_UT,B_QU,B_UQ,QMa
 
 #################################################################################################################################################################################################################################################################################################################################################################################################################################
 
+def create_beam_secpeaks(FWHMx, FWHMy, theta, array_dB, r, r1, X, Y, a, ellipticity):
+    ''' FWHMx, FWHMy = FWHM of x,y beams
+        theta = angle of rotation of the beam (degrees)
+        array_dB = array of max values of the secondary peaks
+        r = array (same dim as array_dB) of the ANGULAR distance from the center
+        r1 = width of the rings (sec peaks)
+        X, Y = coordinates
+        a = major axis for the elliptical rings
+        ellipticity
+    '''
+    # from degrees to distance in pixels
+    r1 = r1/pix_size *60.
+
+    # if theta is not zero, we rotate the coordinates
+    X_rotated = X * np.cos(np.radians(theta)) - Y * np.sin(np.radians(theta))
+    Y_rotated = X * np.sin(np.radians(theta)) + Y * np.cos(np.radians(theta))
+
+    X = X_rotated
+    Y = Y_rotated
+
+    # MAIN BEAM ###################################################################
+    wx = FWHM_x / np.sqrt(2 * np.log(2))
+    wy = FWHM_y / np.sqrt(2 * np.log(2))
+
+    beam_x = np.exp(-2 * (X**2 / wx**2 + Y**2 / wy**2))
+    beam_y = np.exp(-2 * (Y**2 / wx**2 + X**2 / wy**2))
+
+
+    # SECONDARY RINGS ############################################################
+    sec_rings_x = np.zeros_like(X)
+    sec_rings_y = np.zeros_like(Y)
+
+    for i in range(len(array_dB)):
+        # Correction of ellipticity values or the secondary rings turn out flattened. If we want a circle (ell = 1) the correction is not valid
+        if (ellipticity ==1):
+            a = a
+            b = a * (ellipticity)
+        else:
+            a = a
+            b = a * (ellipticity-0.5)
+
+        distance_x = np.sqrt((X / b)**2 + (Y / a)**2)  # ellisse x
+        distance_y = np.sqrt((X / a)**2 + (Y / b)**2)  # ellisse y
+        
+        normalized_distance_x = (distance_x - r1[i]) / r
+        normalized_distance_y = (distance_y - r1[i]) / r
+        
+        max_value = 10**(array_dB[i] / 10)
+        
+        gaussian_distribution_x = np.exp(-(normalized_distance_x)**2 / 0.8)
+        gaussian_distribution_x /= np.max(gaussian_distribution_x) 
+
+        gaussian_distribution_y = np.exp(-(normalized_distance_y)**2 / 0.8)
+        gaussian_distribution_y /= np.max(gaussian_distribution_y) 
+        
+        sec_rings_x += max_value * gaussian_distribution_x
+        sec_rings_y += max_value * gaussian_distribution_y
+
+    sec_rings_x = sec_rings_x *15 #or else they're too faint
+    sec_rings_y = sec_rings_y *15
+
+    # TOT BEAM ###################################################################
+    beam_x_real = beam_x + sec_rings_x
+    beam_y_real = beam_y + sec_rings_y
+
+    # NORMALIZATION #############################################################
+    beam_x_real /= np.max(beam_x_real)
+    beam_y_real /= np.max(beam_y_real)
+
+    return beam_x, beam_y, sec_rings_x, sec_rings_y, beam_x_real, beam_y_real
+
+
+
+
+##############################################################################################################################################################################################################################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
 
 def deconvolve_map_with_beam(input_map, beam, iters=50, eps=None, filter_eps=1e-20, plot=False):
     """
@@ -737,32 +888,18 @@ def richardson_lucy(image, psf, im_deconv=None, num_iter=1, clip=False,
 
 
 #################################################################################################################################################################################################################################################################################################################################################################################################################################
-def convolve_map_with_beam(N,pix_size,beam_x,beam_y, Map):
-    
-    #FT
-    FT_Map    = np.fft.fft2(np.fft.fftshift(Map))
-    FT_beam_x = np.fft.fft2(np.fft.fftshift(beam_x))
-    FT_beam_y = np.fft.fft2(np.fft.fftshift(beam_y))
-    
-    convolved_map_x = np.fft.fftshift((np.fft.ifft2(FT_beam_x*FT_Map)))
-    convolved_map_y = np.fft.fftshift((np.fft.ifft2(FT_beam_y*FT_Map)))
-    
-    
-    combined_map_fourier  = FT_beam_x * FT_Map + FT_beam_y * FT_Map 
-    #combined_beam_fourier = np.abs(FT_beam_x)**2 + np.abs(FT_beam_y)**2
-    
-    
-    # REALE
-    combined_map_real = np.fft.ifft2(combined_map_fourier)
-    combined_map_real = np.real(combined_map_real)
 
-    convolved_map_x_real =  np.fft.ifft2(convolved_map_x)
-    convolved_map_y_real =  np.fft.ifft2(convolved_map_y)
-    
-    convolved_map_x_real = np.real(combined_map_real)
-    convolved_map_y_real = np.real(convolved_map_y_real)
-    #combined_beam_real = np.fft.ifft2(combined_beam_fourier)
-    #combined_beam_real = np.real(combined_beam_real)
-    
-    
-    return(combined_map_real, convolved_map_x_real, convolved_map_y_real)
+
+
+
+
+
+
+
+
+
+
+
+
+
+    '''
