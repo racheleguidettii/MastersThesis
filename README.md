@@ -2,8 +2,8 @@
 _Instrumental systematics: map-based simulations forecasts for the next-generation CMB experiments_
 <br><br>
 
-PolAngle : Polarization angle perturbation on maps (PolAngle_Map) or directly on Power Spectra (PolAngle_PS)
+The "CMBmaps" folder contains notebooks for creating CMB maps from CAMB power spectra, adding the beam and polarization angle, and extracting the power spectra.
 
-Common_Notebook : Power Spectra creation and comparison images
+The "PySMmaps" folder contains notebooks where CMB maps were created with PySM, and the analysis was performed on a sky patch.
 
-Beam_con : Convolution of maps with a simulated beam containing systematics
+All the used functions are in the "functions" folder.
