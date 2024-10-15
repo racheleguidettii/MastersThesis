@@ -2,7 +2,7 @@
 _Instrumental systematics: map-based simulations forecasts for the next-generation CMB experiments_
 <br><br>
 
-The "CMBmaps" folder contains notebooks for creating CMB maps from CAMB power spectra, adding the beam and polarization angle, and extracting the power spectra.
+The "CAMB_maps" folder contains notebooks for creating CMB maps from CAMB power spectra, adding the beam and polarization angle, and extracting the power spectra.
 
 The "PySMmaps" folder contains notebooks where CMB maps were created with PySM, and the analysis was performed on a sky patch.
 
